@@ -1,0 +1,15 @@
+{
+	"zero-is-disabled": "Skriv inn 0 for å deaktivere denne begrensningen",
+	"chat-settings": "Innstillinger for chat",
+	"disable": "Deaktiver chat",
+	"disable-editing": "Deaktiver redigering/sletting av chatmeldinger",
+	"disable-editing-help": "Administratorer og globale moderatorer er unntatt fra denne begrensningen",
+	"max-length": "Maksimal lengde på chatmeldinger",
+	"max-chat-room-name-length": "Maksimal lengde på navn på chatrom",
+	"max-room-size": "Maksimalt antall brukere i chatrom",
+	"delay": "Tid mellom chatmeldinger (ms)",
+	"notification-delay": "Varslingsforsinkelse for chatmeldinger",
+	"notification-delay-help": "Ytterligere meldinger sendt innen denne tiden blir samlet, og brukeren varsles én gang per forsinkelsesperiode. Sett denne til 0 for å deaktivere forsinkelsen.",
+	"restrictions.seconds-edit-after": "Antall sekunder en chatmelding forblir redigerbar.",
+	"restrictions.seconds-delete-after": "Antall sekunder en chatmelding forblir slettbar."
+}
