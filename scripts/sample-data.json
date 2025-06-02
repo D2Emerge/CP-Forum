@@ -1,0 +1,38 @@
+[
+  {
+    "_id": "sample1",
+    "name": "John Doe",
+    "email": "john.doe@example.com",
+    "role": "user",
+    "createdAt": "2024-01-01T00:00:00Z",
+    "settings": {
+      "theme": "default",
+      "notifications": true
+    },
+    "tags": ["active", "verified"]
+  },
+  {
+    "_id": "sample2",
+    "name": "Jane Smith",
+    "email": "jane.smith@example.com",
+    "role": "moderator",
+    "createdAt": "2024-01-02T00:00:00Z",
+    "settings": {
+      "theme": "dark",
+      "notifications": false
+    },
+    "tags": ["moderator", "active"]
+  },
+  {
+    "_id": "sample3",
+    "name": "Admin User",
+    "email": "admin@example.com",
+    "role": "admin",
+    "createdAt": "2024-01-03T00:00:00Z",
+    "settings": {
+      "theme": "default",
+      "notifications": true
+    },
+    "tags": ["admin", "verified", "active"]
+  }
+]
