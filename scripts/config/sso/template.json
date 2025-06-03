@@ -1,0 +1,27 @@
+[
+  {
+    "_key": "oauth2-multiple:strategies:${SSO_STRATEGY_NAME}",
+    "authUrl": "${SSO_AUTH_URL}",
+    "domain": "${SSO_DOMAIN}",
+    "enabled": true,
+    "faIcon": "",
+    "forceUsernameViaEmail": 1,
+    "id": "${SSO_CLIENT_ID}",
+    "idKey": "",
+    "loginLabel": "${SSO_LOGIN_LABEL}",
+    "registerLabel": "${SSO_REGISTER_LABEL}",
+    "scope": "${SSO_SCOPE}",
+    "secret": "${SSO_CLIENT_SECRET}",
+    "syncFullname": 0,
+    "syncPicture": 0,
+    "tokenUrl": "${SSO_TOKEN_URL}",
+    "trustEmailVerified": 1,
+    "userRoute": "${SSO_USER_URL}",
+    "usernameViaEmail": 1
+  },
+  {
+    "_key": "oauth2-multiple:strategies",
+    "value": "${SSO_STRATEGY_NAME}",
+    "score": "${TIMESTAMP}"
+  }
+]
