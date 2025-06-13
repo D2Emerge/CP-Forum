@@ -41,6 +41,26 @@
         {
           "name": "PORT",
           "value": "4567"
+        },
+        {
+          "name": "SITE_URL",
+          "value": "https://forum.codeproject.com"
+        },
+        {
+          "name": "url",
+          "value": "https://forum.codeproject.com"
+        },
+        {
+          "name": "FORCE_HTTPS",
+          "value": "true"
+        },
+        {
+          "name": "TRUST_PROXY",
+          "value": "true"
+        },
+        {
+          "name": "DOMAIN",
+          "value": "forum.codeproject.com"
         }
       ],
       "logConfiguration": {
@@ -52,10 +72,7 @@
         }
       },
       "healthCheck": {
-        "command": [
-          "CMD-SHELL",
-          "curl -f http://localhost:4567/ || exit 1"
-        ],
+        "command": ["CMD-SHELL", "curl -f http://localhost:4567/ || exit 1"],
         "interval": 30,
         "timeout": 5,
         "retries": 3,

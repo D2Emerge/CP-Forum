@@ -1,3 +1,5 @@
+name: Deploy NodeBB to AWS ECS
+
 on:
   push:
     branches: ["release"]
@@ -11,6 +13,8 @@ env:
   ECS_CLUSTER: forum-nodebb-cluster
   ECS_SERVICE: forum-nodebb-service
   TASK_DEFINITION_FILE: aws/task-definitions/production.json
+  DOMAIN_NAME: forum.codeproject.com
+  ROOT_DOMAIN: codeproject.com
 
 jobs:
   deploy:
@@ -60,14 +64,133 @@ jobs:
 
           echo "image=$IMAGE_URI" >> $GITHUB_OUTPUT
 
-      - name: Update task definition with new image
+      - name: Setup SSL certificate for forum.codeproject.com
+        id: ssl-setup
+        run: |
+          echo "🔒 Setting up SSL for ${{ env.DOMAIN_NAME }}"
+
+          # Check if certificate already exists
+          EXISTING_CERT=$(aws acm list-certificates \
+            --query "CertificateSummaryList[?DomainName=='${{ env.DOMAIN_NAME }}'].CertificateArn" \
+            --output text)
+
+          if [ -n "$EXISTING_CERT" ] && [ "$EXISTING_CERT" != "None" ]; then
+            echo "✅ Certificate already exists: $EXISTING_CERT"
+            echo "certificate_arn=$EXISTING_CERT" >> $GITHUB_OUTPUT
+            echo "ssl_enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "📜 Creating new SSL certificate for ${{ env.DOMAIN_NAME }}"
+            
+            # Request certificate for forum.codeproject.com
+            CERT_ARN=$(aws acm request-certificate \
+              --domain-name ${{ env.DOMAIN_NAME }} \
+              --validation-method DNS \
+              --query 'CertificateArn' \
+              --output text)
+            
+            echo "Certificate requested: $CERT_ARN"
+            echo "certificate_arn=$CERT_ARN" >> $GITHUB_OUTPUT
+            echo "ssl_enabled=true" >> $GITHUB_OUTPUT
+            echo "new_certificate=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup DNS validation for forum.codeproject.com
+        if: steps.ssl-setup.outputs.new_certificate == 'true'
+        run: |
+          CERT_ARN="${{ steps.ssl-setup.outputs.certificate_arn }}"
+
+          echo "⏳ Setting up DNS validation for ${{ env.DOMAIN_NAME }}"
+
+          # Wait for certificate to be processed
+          sleep 30
+
+          # Get hosted zone ID for codeproject.com
+          HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
+            --query "HostedZones[?Name=='${{ env.ROOT_DOMAIN }}.'].Id" \
+            --output text | sed 's|/hostedzone/||')
+
+          if [ -z "$HOSTED_ZONE_ID" ] || [ "$HOSTED_ZONE_ID" == "None" ]; then
+            echo "❌ Hosted zone not found for ${{ env.ROOT_DOMAIN }}"
+            echo "Please create Route 53 hosted zone for codeproject.com first"
+            exit 1
+          fi
+
+          echo "Using hosted zone: $HOSTED_ZONE_ID for ${{ env.ROOT_DOMAIN }}"
+
+          # Get validation records
+          VALIDATION_RECORDS=$(aws acm describe-certificate \
+            --certificate-arn $CERT_ARN \
+            --query 'Certificate.DomainValidationOptions[].ResourceRecord')
+
+          # Create validation records
+          echo $VALIDATION_RECORDS | jq -c '.[]' | while read record; do
+            NAME=$(echo $record | jq -r '.Name')
+            VALUE=$(echo $record | jq -r '.Value')
+            
+            cat > validation-record.json << EOL
+          {
+            "Comment": "SSL Certificate Validation for forum.codeproject.com",
+            "Changes": [
+              {
+                "Action": "UPSERT",
+                "ResourceRecordSet": {
+                  "Name": "$NAME",
+                  "Type": "CNAME",
+                  "TTL": 300,
+                  "ResourceRecords": [
+                    {
+                      "Value": "$VALUE"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          EOL
+            
+            aws route53 change-resource-record-sets \
+              --hosted-zone-id $HOSTED_ZONE_ID \
+              --change-batch file://validation-record.json
+            
+            echo "✅ DNS validation record created: $NAME"
+          done
+
+      - name: Wait for SSL certificate validation
+        if: steps.ssl-setup.outputs.new_certificate == 'true'
+        run: |
+          CERT_ARN="${{ steps.ssl-setup.outputs.certificate_arn }}"
+
+          echo "⏳ Waiting for SSL certificate validation for ${{ env.DOMAIN_NAME }}..."
+          echo "This may take 5-10 minutes..."
+
+          # Wait for certificate validation with timeout
+          timeout 900 aws acm wait certificate-validated --certificate-arn $CERT_ARN || {
+            echo "❌ Certificate validation timed out after 15 minutes"
+            echo "Please check DNS records in Route 53 and try again"
+            exit 1
+          }
+
+          echo "✅ SSL certificate validated successfully for ${{ env.DOMAIN_NAME }}!"
+
+      - name: Update task definition with HTTPS config
         id: update-task-def
         run: |
+          # Update image
           jq --arg IMAGE "${{ steps.build-image.outputs.image }}" \
              '.containerDefinitions[0].image = $IMAGE' \
              ${{ env.TASK_DEFINITION_FILE }} > updated-task-def.json
 
-          echo "✅ Task definition updated: ${{ steps.build-image.outputs.image }}"
+          # Add HTTPS environment variables for forum.codeproject.com
+          jq --arg SITE_URL "https://${{ env.DOMAIN_NAME }}" \
+             '.containerDefinitions[0].environment = (.containerDefinitions[0].environment // []) + [
+               {"name": "SITE_URL", "value": $SITE_URL},
+               {"name": "url", "value": $SITE_URL},
+               {"name": "FORCE_HTTPS", "value": "true"},
+               {"name": "TRUST_PROXY", "value": "true"},
+               {"name": "DOMAIN", "value": "${{ env.DOMAIN_NAME }}"}
+             ]' updated-task-def.json > temp.json && mv temp.json updated-task-def.json
+
+          echo "✅ Task definition updated with HTTPS config for ${{ env.DOMAIN_NAME }}"
 
       - name: Register new task definition
         id: register-task-def
@@ -107,19 +230,107 @@ jobs:
           echo "security_group=$SG_ID" >> $GITHUB_OUTPUT
           echo "target_group_arn=$TG_ARN" >> $GITHUB_OUTPUT
 
-          echo "Using public subnets: $PUBLIC_SUBNETS"
+      - name: Setup HTTPS listener on ALB
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --names $PROJECT_NAME-alb \
+            --query 'LoadBalancers[0].LoadBalancerArn' \
+            --output text)
+
+          CERT_ARN="${{ steps.ssl-setup.outputs.certificate_arn }}"
+          TG_ARN="${{ steps.infra-info.outputs.target_group_arn }}"
+
+          # Check if HTTPS listener already exists
+          HTTPS_LISTENER=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query 'Listeners[?Port==`443`].ListenerArn' \
+            --output text)
+
+          if [ -z "$HTTPS_LISTENER" ] || [ "$HTTPS_LISTENER" == "None" ]; then
+            echo "🔒 Creating HTTPS listener for ${{ env.DOMAIN_NAME }}..."
+            aws elbv2 create-listener \
+              --load-balancer-arn $ALB_ARN \
+              --protocol HTTPS \
+              --port 443 \
+              --certificates CertificateArn=$CERT_ARN \
+              --default-actions Type=forward,TargetGroupArn=$TG_ARN
+            
+            echo "✅ HTTPS listener created"
+          else
+            echo "🔄 Updating existing HTTPS listener with certificate..."
+            aws elbv2 modify-listener \
+              --listener-arn $HTTPS_LISTENER \
+              --certificates CertificateArn=$CERT_ARN
+            
+            echo "✅ HTTPS listener updated"
+          fi
+
+          # Setup HTTP to HTTPS redirect
+          HTTP_LISTENER=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query 'Listeners[?Port==`80`].ListenerArn' \
+            --output text)
+
+          if [ -n "$HTTP_LISTENER" ] && [ "$HTTP_LISTENER" != "None" ]; then
+            aws elbv2 modify-listener \
+              --listener-arn $HTTP_LISTENER \
+              --default-actions Type=redirect,RedirectConfig='{Protocol=HTTPS,Port=443,StatusCode=HTTP_301}'
+            
+            echo "✅ HTTP to HTTPS redirect configured"
+          fi
+
+      - name: Setup CNAME for forum.codeproject.com
+        run: |
+          # Get ALB DNS name
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names $PROJECT_NAME-alb \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text)
+
+          # Get hosted zone for codeproject.com
+          HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
+            --query "HostedZones[?Name=='${{ env.ROOT_DOMAIN }}.'].Id" \
+            --output text | sed 's|/hostedzone/||')
+
+          # Create CNAME record for forum.codeproject.com
+          cat > domain-cname.json << EOL
+          {
+            "Comment": "CNAME for NodeBB Forum at forum.codeproject.com",
+            "Changes": [
+              {
+                "Action": "UPSERT",
+                "ResourceRecordSet": {
+                  "Name": "${{ env.DOMAIN_NAME }}",
+                  "Type": "CNAME",
+                  "TTL": 300,
+                  "ResourceRecords": [
+                    {
+                      "Value": "$ALB_DNS"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          EOL
+
+          aws route53 change-resource-record-sets \
+            --hosted-zone-id $HOSTED_ZONE_ID \
+            --change-batch file://domain-cname.json
+
+          echo "✅ CNAME record created: ${{ env.DOMAIN_NAME }} → $ALB_DNS"
 
       - name: Create or update ECS service
         run: |
           if aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query 'services[0].serviceName' --output text 2>/dev/null | grep -q $ECS_SERVICE; then
-            echo "Updating existing ECS service..."
+            echo "🔄 Updating existing ECS service..."
             aws ecs update-service \
               --cluster $ECS_CLUSTER \
               --service $ECS_SERVICE \
               --task-definition ${{ steps.register-task-def.outputs.task_definition_arn }} \
               --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}"
           else
-            echo "Creating new ECS service..."
+            echo "🆕 Creating new ECS service..."
             aws ecs create-service \
               --cluster $ECS_CLUSTER \
               --service-name $ECS_SERVICE \
@@ -161,27 +372,32 @@ jobs:
 
       - name: Wait for service stability
         run: |
+          echo "⏳ Waiting for service stability..."
           aws ecs wait services-stable \
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE
 
       - name: Get deployment status
         run: |
-          ALB_DNS=$(aws elbv2 describe-load-balancers \
-            --names $PROJECT_NAME-alb \
-            --query 'LoadBalancers[0].DNSName' \
-            --output text)
-
           SERVICE_STATUS=$(aws ecs describe-services \
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE \
             --query 'services[0].{running:runningCount,desired:desiredCount}' \
             --output json)
 
+          echo ""
           echo "🎉 Deployment successful!"
-          echo "🌐 Application URL: http://$ALB_DNS"
+          echo "🌐 NodeBB Forum URL: https://${{ env.DOMAIN_NAME }}"
+          echo "🔒 SSL Certificate: ✅ Configured"
           echo "📊 Service Status: $(echo $SERVICE_STATUS | jq -r '"Running: \(.running)/\(.desired)"')"
-          echo "⏰ Please wait 2-3 minutes for the service to fully start"
+          echo "⏰ Please wait 2-3 minutes for NodeBB to fully initialize"
+          echo ""
+          echo "🔗 Direct ALB access (for testing):"
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names $PROJECT_NAME-alb \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text)
+          echo "   http://$ALB_DNS"
 
       - name: Clean up old ECR images
         run: |
