@@ -80,14 +80,83 @@ jobs:
             --output text)
 
           echo "task_definition_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
-          echo "✅ Зареєстровано нову task definition: $TASK_DEF_ARN"
+          echo "✅ Registered new task definition: $TASK_DEF_ARN"
 
-      - name: Update ECS service
+      - name: Get infrastructure info
+        id: infra-info
         run: |
-          aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE \
-            --task-definition ${{ steps.register-task-def.outputs.task_definition_arn }}
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=$PROJECT_NAME-vpc" \
+            --query 'Vpcs[0].VpcId' \
+            --output text)
+
+          SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+            --query 'Subnets[0:2].SubnetId' \
+            --output text | tr '\t' ',')
+
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=$PROJECT_NAME-ecs-sg" \
+            --query 'SecurityGroups[0].GroupId' \
+            --output text)
+
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names $PROJECT_NAME-tg \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text)
+
+          echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
+          echo "security_group=$SG_ID" >> $GITHUB_OUTPUT
+          echo "target_group_arn=$TG_ARN" >> $GITHUB_OUTPUT
+
+      - name: Create or update ECS service
+        run: |
+          if aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query 'services[0].serviceName' --output text 2>/dev/null | grep -q $ECS_SERVICE; then
+            echo "Updating existing ECS service..."
+            aws ecs update-service \
+              --cluster $ECS_CLUSTER \
+              --service $ECS_SERVICE \
+              --task-definition ${{ steps.register-task-def.outputs.task_definition_arn }}
+          else
+            echo "Creating new ECS service..."
+            aws ecs create-service \
+              --cluster $ECS_CLUSTER \
+              --service-name $ECS_SERVICE \
+              --task-definition ${{ steps.register-task-def.outputs.task_definition_arn }} \
+              --desired-count 1 \
+              --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=100,base=0 \
+              --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}" \
+              --load-balancers targetGroupArn=${{ steps.infra-info.outputs.target_group_arn }},containerName=$PROJECT_NAME-container,containerPort=4567
+          fi
+
+      - name: Setup auto scaling
+        run: |
+          if ! aws application-autoscaling describe-scalable-targets \
+            --service-namespace ecs \
+            --resource-ids service/$ECS_CLUSTER/$ECS_SERVICE &>/dev/null; then
+            
+            aws application-autoscaling register-scalable-target \
+              --service-namespace ecs \
+              --scalable-dimension ecs:service:DesiredCount \
+              --resource-id service/$ECS_CLUSTER/$ECS_SERVICE \
+              --min-capacity 1 \
+              --max-capacity 10
+            
+            aws application-autoscaling put-scaling-policy \
+              --service-namespace ecs \
+              --scalable-dimension ecs:service:DesiredCount \
+              --resource-id service/$ECS_CLUSTER/$ECS_SERVICE \
+              --policy-name $PROJECT_NAME-cpu-scaling \
+              --policy-type TargetTrackingScaling \
+              --target-tracking-scaling-policy-configuration '{
+                "TargetValue": 70.0,
+                "PredefinedMetricSpecification": {
+                  "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
+                },
+                "ScaleInCooldown": 300,
+                "ScaleOutCooldown": 300
+              }'
+          fi
 
       - name: Wait for service stability
         run: |
@@ -108,20 +177,19 @@ jobs:
             --query 'services[0].{running:runningCount,desired:desiredCount}' \
             --output json)
 
-          echo "�� Deployment successful!"
+          echo "🎉 Deployment successful!"
           echo "🌐 Application URL: http://$ALB_DNS"
           echo "📊 Service Status: $(echo $SERVICE_STATUS | jq -r '"Running: \(.running)/\(.desired)"')"
           echo "⏰ Please wait 2-3 minutes for the service to fully start"
 
       - name: Clean up old ECR images
         run: |
-          echo "🧹 Images cleanup..."
           aws ecr list-images \
             --repository-name $ECR_REPOSITORY \
             --filter tagStatus=UNTAGGED \
             --query 'sort_by(imageIds, &imageDigest)[:-10]' \
             --output json | \
-          jq -r '.[] | .imageDigest' | \
+          jq -r '.[]? | .imageDigest' | \
           while read digest; do
             if [ -n "$digest" ]; then
               aws ecr batch-delete-image \
@@ -129,5 +197,3 @@ jobs:
                 --image-ids imageDigest=$digest || true
             fi
           done
-
-          echo "✅ Cleanup successful!"
