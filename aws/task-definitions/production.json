@@ -1,0 +1,66 @@
+{
+  "family": "forum-nodebb-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::343218197585:role/forum-nodebb-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::343218197585:role/forum-nodebb-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "forum-nodebb-container",
+      "image": "343218197585.dkr.ecr.us-east-1.amazonaws.com/forum-nodebb-app:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 4567,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "REDIS_HOST",
+          "value": "clustercfg.forum-nodebb-redis.n5zzgh.use1.cache.amazonaws.com"
+        },
+        {
+          "name": "REDIS_PORT",
+          "value": "6379"
+        },
+        {
+          "name": "REDIS_CLUSTER_MODE",
+          "value": "true"
+        },
+        {
+          "name": "REDIS_TLS",
+          "value": "true"
+        },
+        {
+          "name": "PORT",
+          "value": "4567"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/forum-nodebb",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:4567/ || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 120
+      }
+    }
+  ]
+}
