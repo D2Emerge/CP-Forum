@@ -172,7 +172,39 @@ jobs:
 
           echo "✅ SSL certificate validated successfully for ${{ env.DOMAIN_NAME }}!"
 
-      - name: Update task definition with HTTPS config
+      - name: Verify EFS availability
+        run: |
+          echo "🗂️ Verifying EFS filesystem availability..."
+
+          EFS_ID="fs-01edb068232dea08c"
+
+          # Check EFS status
+          EFS_STATUS=$(aws efs describe-file-systems \
+            --file-system-id $EFS_ID \
+            --query 'FileSystems[0].LifeCycleState' \
+            --output text)
+
+          if [ "$EFS_STATUS" != "available" ]; then
+            echo "❌ EFS filesystem not available. Status: $EFS_STATUS"
+            exit 1
+          fi
+
+          # Check mount targets
+          MOUNT_TARGETS=$(aws efs describe-mount-targets \
+            --file-system-id $EFS_ID \
+            --query 'MountTargets[].LifeCycleState' \
+            --output text)
+
+          for status in $MOUNT_TARGETS; do
+            if [ "$status" != "available" ]; then
+              echo "❌ EFS mount target not ready. Status: $status"
+              exit 1
+            fi
+          done
+
+          echo "✅ EFS filesystem and mount targets are ready"
+
+      - name: Update task definition with HTTPS config and EFS
         id: update-task-def
         run: |
           # Update image
@@ -180,17 +212,24 @@ jobs:
              '.containerDefinitions[0].image = $IMAGE' \
              ${{ env.TASK_DEFINITION_FILE }} > updated-task-def.json
 
-          # Add HTTPS environment variables for forum.codeproject.com
           jq --arg SITE_URL "https://${{ env.DOMAIN_NAME }}" \
-             '.containerDefinitions[0].environment = (.containerDefinitions[0].environment // []) + [
-               {"name": "SITE_URL", "value": $SITE_URL},
-               {"name": "url", "value": $SITE_URL},
-               {"name": "FORCE_HTTPS", "value": "true"},
-               {"name": "TRUST_PROXY", "value": "true"},
-               {"name": "DOMAIN", "value": "${{ env.DOMAIN_NAME }}"}
-             ]' updated-task-def.json > temp.json && mv temp.json updated-task-def.json
+            --arg DOMAIN "${{ env.DOMAIN_NAME }}" \
+            '
+            .containerDefinitions[0].environment = [
+              .containerDefinitions[0].environment[] | 
+              if .name == "SITE_URL" then .value = $SITE_URL
+              elif .name == "url" then .value = $SITE_URL  
+              elif .name == "FORCE_HTTPS" then .value = "true"
+              elif .name == "TRUST_PROXY" then .value = "true"
+              elif .name == "DOMAIN" then .value = $DOMAIN
+              elif .name == "SETUP" then .value = "false"
+              else . end
+            ]' updated-task-def.json > temp.json && mv temp.json updated-task-def.json
 
-          echo "✅ Task definition updated with HTTPS config for ${{ env.DOMAIN_NAME }}"
+          echo "✅ Task definition updated with HTTPS config and EFS for ${{ env.DOMAIN_NAME }}"
+
+          echo "📋 Final task definition:"
+          cat updated-task-def.json
 
       - name: Register new task definition
         id: register-task-def
@@ -323,14 +362,15 @@ jobs:
       - name: Create or update ECS service
         run: |
           if aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query 'services[0].serviceName' --output text 2>/dev/null | grep -q $ECS_SERVICE; then
-            echo "🔄 Updating existing ECS service..."
+            echo "🔄 Updating existing ECS service with EFS support..."
             aws ecs update-service \
               --cluster $ECS_CLUSTER \
               --service $ECS_SERVICE \
               --task-definition ${{ steps.register-task-def.outputs.task_definition_arn }} \
-              --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}"
+              --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}" \
+              --force-new-deployment
           else
-            echo "🆕 Creating new ECS service..."
+            echo "🆕 Creating new ECS service with EFS support..."
             aws ecs create-service \
               --cluster $ECS_CLUSTER \
               --service-name $ECS_SERVICE \
@@ -338,7 +378,7 @@ jobs:
               --desired-count 1 \
               --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=100,base=0 \
               --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}" \
-              --load-balancers targetGroupArn=${{ steps.infra-info.outputs.target_group_arn }},containerName=$PROJECT_NAME-container,containerPort=4567
+              --load-balancers targetGroupArn=${{ steps.infra-info.outputs.target_group_arn }},containerName=forum-nodebb-container,containerPort=4567
           fi
 
       - name: Setup auto scaling
@@ -389,6 +429,7 @@ jobs:
           echo "🎉 Deployment successful!"
           echo "🌐 NodeBB Forum URL: https://${{ env.DOMAIN_NAME }}"
           echo "🔒 SSL Certificate: ✅ Configured"
+          echo "🗂️ EFS Storage: ✅ Persistent config enabled"
           echo "📊 Service Status: $(echo $SERVICE_STATUS | jq -r '"Running: \(.running)/\(.desired)"')"
           echo "⏰ Please wait 2-3 minutes for NodeBB to fully initialize"
           echo ""

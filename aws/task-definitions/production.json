@@ -2,65 +2,91 @@
   "family": "forum-nodebb-task",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "512",
-  "memory": "1024",
-  "executionRoleArn": "arn:aws:iam::343218197585:role/forum-nodebb-ecs-execution-role",
-  "taskRoleArn": "arn:aws:iam::343218197585:role/forum-nodebb-ecs-task-role",
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::343218197585:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::343218197585:role/ecsTaskRole",
+  "volumes": [
+    {
+      "name": "nodebb-config",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-01edb068232dea08c",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-00d7cdc6343e8dcb1"
+        }
+      }
+    }
+  ],
   "containerDefinitions": [
     {
       "name": "forum-nodebb-container",
       "image": "343218197585.dkr.ecr.us-east-1.amazonaws.com/forum-nodebb-app:latest",
-      "essential": true,
+      "entryPoint": ["tini", "--"],
+      "command": ["node", "app.js"],
       "portMappings": [
         {
           "containerPort": 4567,
           "protocol": "tcp"
         }
       ],
+      "mountPoints": [
+        {
+          "sourceVolume": "nodebb-config",
+          "containerPath": "/opt/config",
+          "readOnly": false
+        }
+      ],
       "environment": [
+        { "name": "PORT", "value": "4567" },
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "SETUP", "value": "false" },
+        { "name": "SITE_URL", "value": "https://forum.codeproject.com" },
+        { "name": "url", "value": "https://forum.codeproject.com" },
+        { "name": "FORCE_HTTPS", "value": "true" },
+        { "name": "TRUST_PROXY", "value": "true" },
+        { "name": "DOMAIN", "value": "forum.codeproject.com" },
+        { "name": "DAEMON", "value": "false" },
+        { "name": "SILENT", "value": "false" },
+        { "name": "CONFIG_DIR", "value": "/opt/config" },
+        { "name": "CONFIG", "value": "/opt/config/config.json" }
+      ],
+      "secrets": [
         {
-          "name": "NODE_ENV",
-          "value": "production"
+          "name": "NODEBB_DB_HOST",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/db/host"
         },
         {
-          "name": "REDIS_HOST",
-          "value": "clustercfg.forum-nodebb-redis.n5zzgh.use1.cache.amazonaws.com"
+          "name": "NODEBB_DB_PORT",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/db/port"
         },
         {
-          "name": "REDIS_PORT",
-          "value": "6379"
+          "name": "NODEBB_DB_USER",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/db/username"
         },
         {
-          "name": "REDIS_CLUSTER_MODE",
-          "value": "true"
+          "name": "NODEBB_DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:343218197585:secret:forum-nodebb/docdb-password-IxTJZq"
         },
         {
-          "name": "REDIS_TLS",
-          "value": "true"
+          "name": "NODEBB_DB_NAME",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/db/name"
         },
         {
-          "name": "PORT",
-          "value": "4567"
+          "name": "NODEBB_DB_SSL",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/db/ssl"
         },
         {
-          "name": "SITE_URL",
-          "value": "https://forum.codeproject.com"
+          "name": "NODEBB_ADMIN_USERNAME",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/admin/username"
         },
         {
-          "name": "url",
-          "value": "https://forum.codeproject.com"
+          "name": "NODEBB_ADMIN_PASSWORD",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/admin/password"
         },
         {
-          "name": "FORCE_HTTPS",
-          "value": "true"
-        },
-        {
-          "name": "TRUST_PROXY",
-          "value": "true"
-        },
-        {
-          "name": "DOMAIN",
-          "value": "forum.codeproject.com"
+          "name": "NODEBB_ADMIN_EMAIL",
+          "valueFrom": "arn:aws:ssm:us-east-1:343218197585:parameter/forum-nodebb/admin/email"
         }
       ],
       "logConfiguration": {
@@ -71,13 +97,22 @@
           "awslogs-stream-prefix": "ecs"
         }
       },
+      "essential": true,
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:4567/ || exit 1"],
+        "command": ["CMD-SHELL", "curl -f http://localhost:4567/api || exit 1"],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
-        "startPeriod": 120
-      }
+        "startPeriod": 60
+      },
+      "stopTimeout": 120,
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65536,
+          "hardLimit": 65536
+        }
+      ]
     }
   ]
 }
