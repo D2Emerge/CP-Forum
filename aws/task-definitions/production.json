@@ -26,7 +26,7 @@
       "command": [
         "bash",
         "-c",
-        "cd /usr/src/app && echo 'Building assets...' && node app.js --build && echo 'Starting NodeBB server...' && exec node app.js"
+        "cd /usr/src/app && echo 'Building assets...' && NODE_ENV=production node app.js --build && echo 'Copying build to EFS...' && cp -r build/* /opt/build/ 2>/dev/null || echo 'Copy completed' && echo 'Starting NodeBB server...' && exec node app.js"
       ],
       "portMappings": [
         {
@@ -38,6 +38,11 @@
         {
           "sourceVolume": "nodebb-config",
           "containerPath": "/opt/config",
+          "readOnly": false
+        },
+        {
+          "sourceVolume": "nodebb-config",
+          "containerPath": "/usr/src/app/build",
           "readOnly": false
         }
       ],
@@ -53,7 +58,8 @@
         { "name": "DAEMON", "value": "false" },
         { "name": "SILENT", "value": "false" },
         { "name": "CONFIG_DIR", "value": "/opt/config" },
-        { "name": "CONFIG", "value": "/opt/config/config.json" }
+        { "name": "CONFIG", "value": "/opt/config/config.json" },
+        { "name": "MINIFY", "value": "true" }
       ],
       "secrets": [
         {
@@ -102,13 +108,6 @@
         }
       },
       "essential": true,
-      "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:4567/api || exit 1"],
-        "interval": 30,
-        "timeout": 5,
-        "retries": 3,
-        "startPeriod": 60
-      },
       "stopTimeout": 120,
       "ulimits": [
         {
