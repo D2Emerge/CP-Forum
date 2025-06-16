@@ -34,13 +34,17 @@ USER ${USER}
 RUN npm install --omit=dev \
     && rm -rf .npm
 
-RUN echo '<?xml version="1.0" encoding="UTF-8"?>' > build/public/templates/sitemap.tpl \
+RUN mkdir -p build/public/templates \
+    && echo '<?xml version="1.0" encoding="UTF-8"?>' > build/public/templates/sitemap.tpl \
     && echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' >> build/public/templates/sitemap.tpl \
     && echo '<!-- IF urls -->{urls}<!-- ENDIF urls -->' >> build/public/templates/sitemap.tpl \
     && echo '</urlset>' >> build/public/templates/sitemap.tpl \
+    && echo '<!-- 404 Error -->' > build/public/templates/404.tpl \
+    && echo '<!-- 500 Error -->' > build/public/templates/500.tpl \
+    && echo '<!DOCTYPE html><html><head><title>{title}</title></head><body><!-- IMPORT partials/header.tpl --><div class="container">{content}</div><!-- IMPORT partials/footer.tpl --></body></html>' > build/public/templates/base.tpl \
     && echo '/* Initial CSS */' > build/public/client.css \
     && echo '/* Initial CSS */' > build/public/client-cerulean.css \
-    && echo 'temp' > build/cache-buster
+    && printf 'abcdefghijk' > build/cache-buster
 
 EXPOSE 4567
 

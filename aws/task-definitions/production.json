@@ -23,7 +23,11 @@
       "name": "forum-nodebb-container",
       "image": "343218197585.dkr.ecr.us-east-1.amazonaws.com/forum-nodebb-app:latest",
       "entryPoint": ["tini", "--"],
-      "command": ["node", "app.js"],
+      "command": [
+        "bash",
+        "-c",
+        "cd /usr/src/app && echo 'Building assets...' && node app.js --build && echo 'Starting NodeBB server...' && exec node app.js"
+      ],
       "portMappings": [
         {
           "containerPort": 4567,
