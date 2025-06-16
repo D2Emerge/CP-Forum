@@ -69,7 +69,6 @@ function checkSetupFlagEnv() {
 	// Set setup values from env vars (if set)
 	const envKeys = Object.keys(process.env);
 
-	console.log("ENV: ", process.env);
 	if (Object.keys(envConfMap).some((key) => envKeys.includes(key))) {
 		winston.info(
 			"[install/checkSetupFlagEnv] checking env vars for setup info..."

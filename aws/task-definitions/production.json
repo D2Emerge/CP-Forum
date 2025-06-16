@@ -10,10 +10,10 @@
     {
       "name": "nodebb-config",
       "efsVolumeConfiguration": {
-        "fileSystemId": "fs-01edb068232dea08c",
+        "fileSystemId": "fs-040464c77579387a9",
         "transitEncryption": "ENABLED",
         "authorizationConfig": {
-          "accessPointId": "fsap-00d7cdc6343e8dcb1"
+          "accessPointId": "fsap-018da5cda3e607c75"
         }
       }
     }

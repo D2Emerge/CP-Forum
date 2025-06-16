@@ -176,7 +176,7 @@ jobs:
         run: |
           echo "🗂️ Verifying EFS filesystem availability..."
 
-          EFS_ID="fs-01edb068232dea08c"
+          EFS_ID="fs-040464c77579387a9"
 
           # Check EFS status
           EFS_STATUS=$(aws efs describe-file-systems \
@@ -204,7 +204,7 @@ jobs:
 
           echo "✅ EFS filesystem and mount targets are ready"
 
-      - name: Update task definition with HTTPS config and EFS
+      - name: Update task definition
         id: update-task-def
         run: |
           # Update image
@@ -226,10 +226,7 @@ jobs:
               else . end
             ]' updated-task-def.json > temp.json && mv temp.json updated-task-def.json
 
-          echo "✅ Task definition updated with HTTPS config and EFS for ${{ env.DOMAIN_NAME }}"
-
-          echo "📋 Final task definition:"
-          cat updated-task-def.json
+          echo "✅ Task definition updated for ${{ env.DOMAIN_NAME }}"
 
       - name: Register new task definition
         id: register-task-def
@@ -362,7 +359,7 @@ jobs:
       - name: Create or update ECS service
         run: |
           if aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query 'services[0].serviceName' --output text 2>/dev/null | grep -q $ECS_SERVICE; then
-            echo "🔄 Updating existing ECS service with EFS support..."
+            echo "🔄 Updating existing ECS service..."
             aws ecs update-service \
               --cluster $ECS_CLUSTER \
               --service $ECS_SERVICE \
@@ -370,7 +367,7 @@ jobs:
               --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}" \
               --force-new-deployment
           else
-            echo "🆕 Creating new ECS service with EFS support..."
+            echo "🆕 Creating new ECS service..."
             aws ecs create-service \
               --cluster $ECS_CLUSTER \
               --service-name $ECS_SERVICE \
@@ -379,35 +376,6 @@ jobs:
               --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=100,base=0 \
               --network-configuration "awsvpcConfiguration={subnets=[${{ steps.infra-info.outputs.subnets }}],securityGroups=[${{ steps.infra-info.outputs.security_group }}],assignPublicIp=ENABLED}" \
               --load-balancers targetGroupArn=${{ steps.infra-info.outputs.target_group_arn }},containerName=forum-nodebb-container,containerPort=4567
-          fi
-
-      - name: Setup auto scaling
-        run: |
-          if ! aws application-autoscaling describe-scalable-targets \
-            --service-namespace ecs \
-            --resource-ids service/$ECS_CLUSTER/$ECS_SERVICE &>/dev/null; then
-            
-            aws application-autoscaling register-scalable-target \
-              --service-namespace ecs \
-              --scalable-dimension ecs:service:DesiredCount \
-              --resource-id service/$ECS_CLUSTER/$ECS_SERVICE \
-              --min-capacity 1 \
-              --max-capacity 10
-            
-            aws application-autoscaling put-scaling-policy \
-              --service-namespace ecs \
-              --scalable-dimension ecs:service:DesiredCount \
-              --resource-id service/$ECS_CLUSTER/$ECS_SERVICE \
-              --policy-name $PROJECT_NAME-cpu-scaling \
-              --policy-type TargetTrackingScaling \
-              --target-tracking-scaling-policy-configuration '{
-                "TargetValue": 70.0,
-                "PredefinedMetricSpecification": {
-                  "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
-                },
-                "ScaleInCooldown": 300,
-                "ScaleOutCooldown": 300
-              }'
           fi
 
       - name: Wait for service stability
@@ -429,16 +397,8 @@ jobs:
           echo "🎉 Deployment successful!"
           echo "🌐 NodeBB Forum URL: https://${{ env.DOMAIN_NAME }}"
           echo "🔒 SSL Certificate: ✅ Configured"
-          echo "🗂️ EFS Storage: ✅ Persistent config enabled"
           echo "📊 Service Status: $(echo $SERVICE_STATUS | jq -r '"Running: \(.running)/\(.desired)"')"
           echo "⏰ Please wait 2-3 minutes for NodeBB to fully initialize"
-          echo ""
-          echo "🔗 Direct ALB access (for testing):"
-          ALB_DNS=$(aws elbv2 describe-load-balancers \
-            --names $PROJECT_NAME-alb \
-            --query 'LoadBalancers[0].DNSName' \
-            --output text)
-          echo "   http://$ALB_DNS"
 
       - name: Clean up old ECR images
         run: |

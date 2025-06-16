@@ -58,7 +58,6 @@ connection.getConnectionString = function (mongo) {
 		mongo.database
 	}${queryString}`;
 
-	console.log(uri || composedUri);
 	return uri || composedUri;
 };
 
