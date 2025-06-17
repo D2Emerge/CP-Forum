@@ -101,8 +101,8 @@
           "curl -f http://localhost:4567/api || curl -f http://localhost:4567/ || exit 1"
         ],
         "interval": 30,
-        "timeout": 15,
-        "retries": 3,
+        "timeout": 10,
+        "retries": 5,
         "startPeriod": 240
       },
       "stopTimeout": 60,

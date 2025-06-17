@@ -407,28 +407,32 @@ fix_jquery_assets() {
         if [ -f "$admin_file" ]; then
             echo "🔧 Processing $admin_file..."
             
-            # Check if jQuery is already present
-            if grep -q "jQuery\|jquery.*=.*function\|\$\.fn\.\|window\.jQuery" "$admin_file"; then
-                echo "✓ jQuery already present in $admin_file"
-                admin_fixed=1
-            else
-                echo "⚠️  jQuery missing from $admin_file, integrating..."
-                
-                # Backup original file
-                cp "$admin_file" "${admin_file}.backup"
-                
-                # Create new file with jQuery prepended
-                {
-                    echo "/* jQuery 3.7.1 for NodeBB Admin Panel */"
-                    cat jquery-3.7.1.min.js
-                    echo ";"
-                    echo "/* NodeBB Admin Scripts */"
-                    cat "${admin_file}.backup"
-                } > "$admin_file"
-                
-                echo "✓ jQuery integrated into $admin_file"
-                admin_fixed=1
-            fi
+            # ALWAYS re-integrate jQuery at the beginning to ensure proper loading order
+            echo "🔧 Re-integrating jQuery at the beginning of $admin_file..."
+            
+            # Backup original file
+            cp "$admin_file" "${admin_file}.backup"
+            
+            # Remove any existing jQuery to avoid conflicts
+            grep -v "jQuery\|window\.jQuery\|\$\.fn\." "${admin_file}.backup" > "${admin_file}.clean" || cp "${admin_file}.backup" "${admin_file}.clean"
+            
+            # Create new file with jQuery FIRST
+            {
+                echo "/* jQuery 3.7.1 - MUST BE FIRST */"
+                cat jquery-3.7.1.min.js
+                echo ";"
+                echo ""
+                echo "/* Ensure jQuery is globally available */"
+                echo "if (typeof window !== 'undefined') {"
+                echo "    window.jQuery = window.$ = jQuery;"
+                echo "}"
+                echo ""
+                echo "/* NodeBB Admin Scripts */"
+                cat "${admin_file}.clean"
+            } > "$admin_file"
+            
+            echo "✓ jQuery integrated at the beginning of $admin_file"
+            admin_fixed=1
             
             # Ensure admin.min.js exists and points to the fixed file
             if [ "$admin_file" != "admin.min.js" ]; then
@@ -448,18 +452,27 @@ fix_jquery_assets() {
         if [ -f "$client_file" ]; then
             echo "🔧 Processing $client_file..."
             
-            if ! grep -q "jQuery\|jquery.*=.*function\|\$\.fn\.\|window\.jQuery" "$client_file"; then
-                echo "⚠️  jQuery missing from $client_file, integrating..."
-                cp "$client_file" "${client_file}.backup"
-                {
-                    echo "/* jQuery 3.7.1 for NodeBB Client */"
-                    cat jquery-3.7.1.min.js
-                    echo ";"
-                    echo "/* NodeBB Client Scripts */"
-                    cat "${client_file}.backup"
-                } > "$client_file"
-                echo "✓ jQuery integrated into $client_file"
-            fi
+            # Always re-integrate jQuery for consistency
+            echo "🔧 Re-integrating jQuery at the beginning of $client_file..."
+            cp "$client_file" "${client_file}.backup"
+            
+            # Remove any existing jQuery
+            grep -v "jQuery\|window\.jQuery\|\$\.fn\." "${client_file}.backup" > "${client_file}.clean" || cp "${client_file}.backup" "${client_file}.clean"
+            
+            {
+                echo "/* jQuery 3.7.1 for NodeBB Client - MUST BE FIRST */"
+                cat jquery-3.7.1.min.js
+                echo ";"
+                echo ""
+                echo "/* Ensure jQuery is globally available */"
+                echo "if (typeof window !== 'undefined') {"
+                echo "    window.jQuery = window.$ = jQuery;"
+                echo "}"
+                echo ""
+                echo "/* NodeBB Client Scripts */"
+                cat "${client_file}.clean"
+            } > "$client_file"
+            echo "✓ jQuery integrated at the beginning of $client_file"
             
             if [ "$client_file" != "client.min.js" ]; then
                 ln -sf "$client_file" client.min.js
