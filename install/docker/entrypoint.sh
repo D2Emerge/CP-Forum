@@ -99,11 +99,11 @@ create_documentdb_config() {
   
   # Environment variables with defaults
   local site_url="${SITE_URL:-https://forum.codeproject.com}"
-  local secret="${NODEBB_SECRET:-$(openssl rand -hex 32)}"
+  local secret="${NODEBB_SECRET:-$(date +%s | sha256sum | base64 | head -c 32)}"
   local db_port="${NODEBB_DB_PORT:-27017}"
   local app_port="${PORT:-4567}"
   local auth_source="${NODEBB_DB_AUTH_SOURCE:-admin}"
-  local session_secret="${SESSION_SECRET:-$(openssl rand -hex 32)}"
+  local session_secret="${SESSION_SECRET:-$(date +%s | sha256sum | base64 | head -c 32)}"
   
   echo "Creating DocumentDB optimized configuration..."
   
@@ -121,7 +121,7 @@ create_documentdb_config() {
     "options": {
       "authSource": "$auth_source",
       "ssl": ${NODEBB_DB_SSL:-true},
-      "sslValidate": false,
+      "tlsInsecure": true,
       "sslCA": null,
       "retryWrites": false,
       "readPreference": "primary",
@@ -134,7 +134,7 @@ create_documentdb_config() {
       "heartbeatFrequencyMS": 10000,
       "w": "majority",
       "journal": true,
-      "readConcern": "local",
+      "readConcern": {"level": "local"},
       "writeConcern": {
         "w": "majority",
         "j": true,
@@ -168,11 +168,11 @@ create_documentdb_config() {
 CONFIG_EOF
 
   echo "✓ DocumentDB configuration created with optimized settings"
-  echo "  - SSL enabled with validation disabled (DocumentDB requirement)"
+  echo "  - SSL enabled with tlsInsecure=true (DocumentDB requirement)"
   echo "  - retryWrites disabled (DocumentDB limitation)"
   echo "  - Optimized connection pool settings"
-  echo "  - Majority write concern for consistency"
   echo "  - Primary read preference for DocumentDB"
+  echo "  - Simplified options for NodeBB v4.4.3 compatibility"
   
   # Copy to working directory for NodeBB compatibility
   cp "$config" /usr/src/app/config.json
