@@ -22,12 +22,7 @@
     {
       "name": "forum-nodebb-container",
       "image": "343218197585.dkr.ecr.us-east-1.amazonaws.com/forum-nodebb-app:latest",
-      "entryPoint": ["tini", "--"],
-      "command": [
-        "bash",
-        "-c",
-        "cd /usr/src/app && echo 'Building assets...' && NODE_ENV=production node app.js --build && echo 'Copying build to EFS...' && cp -r build/* /opt/build/ 2>/dev/null || echo 'Copy completed' && echo 'Starting NodeBB server...' && exec node app.js"
-      ],
+      "essential": true,
       "portMappings": [
         {
           "containerPort": 4567,
@@ -39,27 +34,19 @@
           "sourceVolume": "nodebb-config",
           "containerPath": "/opt/config",
           "readOnly": false
-        },
-        {
-          "sourceVolume": "nodebb-config",
-          "containerPath": "/usr/src/app/build",
-          "readOnly": false
         }
       ],
       "environment": [
-        { "name": "PORT", "value": "4567" },
         { "name": "NODE_ENV", "value": "production" },
-        { "name": "SETUP", "value": "false" },
+        { "name": "PORT", "value": "4567" },
         { "name": "SITE_URL", "value": "https://forum.codeproject.com" },
-        { "name": "url", "value": "https://forum.codeproject.com" },
         { "name": "FORCE_HTTPS", "value": "true" },
         { "name": "TRUST_PROXY", "value": "true" },
         { "name": "DOMAIN", "value": "forum.codeproject.com" },
         { "name": "DAEMON", "value": "false" },
         { "name": "SILENT", "value": "false" },
-        { "name": "CONFIG_DIR", "value": "/opt/config" },
-        { "name": "CONFIG", "value": "/opt/config/config.json" },
-        { "name": "MINIFY", "value": "true" }
+        { "name": "START_BUILD", "value": "true" },
+        { "name": "PACKAGE_MANAGER", "value": "npm" }
       ],
       "secrets": [
         {
@@ -104,18 +91,36 @@
         "options": {
           "awslogs-group": "/ecs/forum-nodebb",
           "awslogs-region": "us-east-1",
-          "awslogs-stream-prefix": "ecs"
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-datetime-format": "%Y-%m-%d %H:%M:%S"
         }
       },
-      "essential": true,
-      "stopTimeout": 120,
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:4567/api || curl -f http://localhost:4567/ || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 15,
+        "retries": 3,
+        "startPeriod": 240
+      },
+      "stopTimeout": 60,
       "ulimits": [
         {
           "name": "nofile",
           "softLimit": 65536,
           "hardLimit": 65536
+        },
+        {
+          "name": "nproc",
+          "softLimit": 32768,
+          "hardLimit": 32768
         }
-      ]
+      ],
+      "linuxParameters": {
+        "initProcessEnabled": true
+      }
     }
   ]
 }
