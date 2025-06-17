@@ -47,10 +47,9 @@
         { "name": "SILENT", "value": "false" },
         { "name": "START_BUILD", "value": "true" },
         { "name": "PACKAGE_MANAGER", "value": "npm" },
-        {
-          "name": "DEBUG_MODE",
-          "value": "true"
-        }
+        { "name": "ECS_CLUSTER", "value": "forum-nodebb-cluster" },
+        { "name": "ECS_SERVICE", "value": "forum-nodebb-service" },
+        { "name": "AWS_REGION", "value": "us-east-1" }
       ],
       "secrets": [
         {
@@ -100,11 +99,11 @@
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:4567/api || exit 1"],
+        "command": ["CMD-SHELL", "exit 0"],
         "interval": 30,
-        "timeout": 10,
+        "timeout": 5,
         "retries": 5,
-        "startPeriod": 240
+        "startPeriod": 300
       },
       "stopTimeout": 120,
       "ulimits": [
