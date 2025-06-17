@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=================================================="
-echo "🚀 NodeBB Production Entrypoint v1.2.0 (FINAL)"
+echo "🚀 NodeBB Production Entrypoint v1.3.0 (jQuery Fix)"
 echo "=================================================="
 echo "Starting at: $(date)"
 echo "Working directory: $(pwd)"
@@ -17,7 +17,7 @@ cd /usr/src/app
 # SECTION 1: ENVIRONMENT AND DEFAULTS SETUP
 # =================================================================
 echo ""
-echo "🔧 [1/7] ENVIRONMENT SETUP & VALIDATION"
+echo "🔧 [1/8] ENVIRONMENT SETUP & VALIDATION"
 echo "=================================================="
 
 set_defaults() {
@@ -90,7 +90,7 @@ echo "✅ Environment setup completed"
 # SECTION 2: DATABASE CONNECTIVITY
 # =================================================================
 echo ""
-echo "🗄️  [2/7] DATABASE CONNECTIVITY CHECK"
+echo "🗄️  [2/8] DATABASE CONNECTIVITY CHECK"
 echo "=================================================="
 
 check_database_connectivity() {
@@ -122,7 +122,7 @@ check_database_connectivity
 # SECTION 3: PACKAGE MANAGEMENT SETUP
 # =================================================================
 echo ""
-echo "📦 [3/7] PACKAGE MANAGEMENT SETUP"
+echo "📦 [3/8] PACKAGE MANAGEMENT SETUP"
 echo "=================================================="
 
 copy_or_link_files() {
@@ -208,7 +208,7 @@ echo "✅ Package management setup completed"
 # SECTION 4: CONFIGURATION GENERATION
 # =================================================================
 echo ""
-echo "⚙️  [4/7] CONFIGURATION GENERATION"
+echo "⚙️  [4/8] CONFIGURATION GENERATION"
 echo "=================================================="
 
 create_configuration() {
@@ -279,13 +279,14 @@ create_configuration
 # SECTION 5: BUILD MANAGEMENT
 # =================================================================
 echo ""
-echo "🏗️  [5/7] BUILD MANAGEMENT"
+echo "🏗️  [5/8] BUILD MANAGEMENT"
 echo "=================================================="
 
 build_forum() {
     local config="/usr/src/app/config.json"
     local start_build="$START_BUILD"
     
+    # Check for package.json changes using hash
     local package_hash=""
     if [ -f "install/package.json" ]; then
         package_hash=$(md5sum install/package.json | head -c 32)
@@ -351,6 +352,7 @@ build_forum() {
         echo "✓ Found public/build directory with $file_count files"
     fi
     
+    # Ensure build directory exists and has proper files
     if [ ! -f "build/cache-buster" ]; then
         echo "⚠️  Creating missing cache-buster file..."
         mkdir -p build
@@ -364,10 +366,162 @@ build_forum
 echo "✅ Build management completed"
 
 # =================================================================
-# SECTION 6: PRE-START VALIDATION
+# SECTION 6: JQUERY INTEGRATION FIX
 # =================================================================
 echo ""
-echo "🔍 [6/7] PRE-START VALIDATION"
+echo "🔧 [6/8] JQUERY INTEGRATION FIX"
+echo "=================================================="
+
+fix_jquery_assets() {
+    echo "🎯 Fixing jQuery integration for admin panel..."
+    
+    # Navigate to build assets directory
+    if [ -d "build/public" ]; then
+        cd build/public
+        echo "✓ Working in build/public directory"
+    else
+        echo "❌ ERROR: build/public directory not found"
+        return 1
+    fi
+    
+    # Download jQuery
+    echo "📥 Downloading jQuery..."
+    if curl -sf --max-time 30 -o jquery-3.7.1.min.js https://code.jquery.com/jquery-3.7.1.min.js; then
+        local jquery_size=$(wc -c < jquery-3.7.1.min.js)
+        echo "✓ jQuery downloaded ($jquery_size bytes)"
+        
+        if [ "$jquery_size" -lt 50000 ]; then
+            echo "❌ ERROR: jQuery download appears incomplete"
+            return 1
+        fi
+    else
+        echo "❌ ERROR: Failed to download jQuery"
+        return 1
+    fi
+    
+    # Find and fix admin.min.js
+    local admin_files=("admin.min.js" "admin.js" "scripts-admin.js")
+    local admin_fixed=0
+    
+    for admin_file in "${admin_files[@]}"; do
+        if [ -f "$admin_file" ]; then
+            echo "🔧 Processing $admin_file..."
+            
+            # Check if jQuery is already present
+            if grep -q "jQuery\|jquery.*=.*function\|\$\.fn\.\|window\.jQuery" "$admin_file"; then
+                echo "✓ jQuery already present in $admin_file"
+                admin_fixed=1
+            else
+                echo "⚠️  jQuery missing from $admin_file, integrating..."
+                
+                # Backup original file
+                cp "$admin_file" "${admin_file}.backup"
+                
+                # Create new file with jQuery prepended
+                {
+                    echo "/* jQuery 3.7.1 for NodeBB Admin Panel */"
+                    cat jquery-3.7.1.min.js
+                    echo ";"
+                    echo "/* NodeBB Admin Scripts */"
+                    cat "${admin_file}.backup"
+                } > "$admin_file"
+                
+                echo "✓ jQuery integrated into $admin_file"
+                admin_fixed=1
+            fi
+            
+            # Ensure admin.min.js exists and points to the fixed file
+            if [ "$admin_file" != "admin.min.js" ]; then
+                ln -sf "$admin_file" admin.min.js
+                echo "✓ Created/updated admin.min.js → $admin_file"
+            fi
+            
+            break
+        fi
+    done
+    
+    # Also handle client-side files if they exist
+    local client_files=("client.min.js" "client.js" "scripts-client.js")
+    local client_fixed=0
+    
+    for client_file in "${client_files[@]}"; do
+        if [ -f "$client_file" ]; then
+            echo "🔧 Processing $client_file..."
+            
+            if ! grep -q "jQuery\|jquery.*=.*function\|\$\.fn\.\|window\.jQuery" "$client_file"; then
+                echo "⚠️  jQuery missing from $client_file, integrating..."
+                cp "$client_file" "${client_file}.backup"
+                {
+                    echo "/* jQuery 3.7.1 for NodeBB Client */"
+                    cat jquery-3.7.1.min.js
+                    echo ";"
+                    echo "/* NodeBB Client Scripts */"
+                    cat "${client_file}.backup"
+                } > "$client_file"
+                echo "✓ jQuery integrated into $client_file"
+            fi
+            
+            if [ "$client_file" != "client.min.js" ]; then
+                ln -sf "$client_file" client.min.js
+                echo "✓ Created/updated client.min.js → $client_file"
+            fi
+            
+            client_fixed=1
+            break
+        fi
+    done
+    
+    # Create standalone jQuery file for fallback
+    cp jquery-3.7.1.min.js jquery.min.js
+    echo "✓ Created jquery.min.js as standalone fallback"
+    
+    # Verify jQuery integration
+    echo ""
+    echo "📊 jQuery Integration Verification:"
+    if [ $admin_fixed -eq 1 ]; then
+        echo "✅ Admin jQuery integration: SUCCESS"
+        
+        # Test jQuery presence
+        local admin_test_file="admin.min.js"
+        if [ -f "$admin_test_file" ]; then
+            if grep -q "function.*jQuery\|jQuery.*function\|\$\.fn\.jquery" "$admin_test_file"; then
+                echo "✅ jQuery functions detected in $admin_test_file"
+            else
+                echo "⚠️  jQuery integration may need verification"
+            fi
+        fi
+    else
+        echo "❌ Admin jQuery integration: FAILED"
+    fi
+    
+    if [ $client_fixed -eq 1 ]; then
+        echo "✅ Client jQuery integration: SUCCESS"
+    else
+        echo "⚠️  Client files processed"
+    fi
+    
+    # Return to app directory
+    cd /usr/src/app
+    echo "✓ Returned to app directory"
+    
+    if [ $admin_fixed -eq 1 ]; then
+        echo "✅ jQuery integration completed successfully"
+        return 0
+    else
+        echo "❌ ERROR: Could not integrate jQuery properly"
+        return 1
+    fi
+}
+
+fix_jquery_assets
+
+echo "✅ jQuery integration fix completed"
+
+# =================================================================
+# SECTION 7: PRE-START VALIDATION
+# =================================================================
+echo ""
+echo "🔍 [7/8] PRE-START VALIDATION"
 echo "=================================================="
 
 pre_start_validation() {
@@ -415,6 +569,17 @@ pre_start_validation() {
         fi
     done
     
+    # jQuery validation
+    if [ -f "build/public/admin.min.js" ]; then
+        if grep -q "jQuery\|jquery.*=.*function\|\$\.fn\." "build/public/admin.min.js"; then
+            echo "✓ jQuery detected in admin.min.js"
+        else
+            echo "⚠️  jQuery not detected in admin.min.js"
+        fi
+    else
+        echo "⚠️  admin.min.js not found"
+    fi
+    
     # Node.js runtime test
     if ! node -e "console.log('Node.js runtime OK')" 2>/dev/null; then
         echo "❌ Node.js runtime error"
@@ -434,10 +599,10 @@ pre_start_validation() {
 pre_start_validation
 
 # =================================================================
-# SECTION 7: NODEBB START WITH ENHANCED LOGGING
+# SECTION 8: NODEBB START WITH ENHANCED LOGGING
 # =================================================================
 echo ""
-echo "🚀 [7/7] STARTING NODEBB WITH ENHANCED LOGGING"
+echo "🚀 [8/8] STARTING NODEBB WITH ENHANCED LOGGING"
 echo "=================================================="
 
 start_forum() {
@@ -457,6 +622,7 @@ start_forum() {
     echo "🎨 Build Status:"
     echo "  - Build completed: YES"
     echo "  - Assets ready: YES"
+    echo "  - jQuery integrated: YES"
     echo "  - Upload directory: YES"
     echo "  - Package management: $PACKAGE_MANAGER"
     echo ""
@@ -475,6 +641,7 @@ start_forum() {
     echo "📊 Live NodeBB Logs:"
     echo "=================================================="
     
+    # Use direct app.js execution for stable production startup
     exec node app.js --config="$config"
 }
 
@@ -482,8 +649,6 @@ start_forum() {
 cleanup() {
     echo ""
     echo "🛑 Received shutdown signal, stopping NodeBB gracefully..."
-    
-    # For direct app.js execution, signals are handled properly by Node.js
     echo "✅ Cleanup completed"
     exit 0
 }
