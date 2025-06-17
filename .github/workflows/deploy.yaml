@@ -315,47 +315,6 @@ jobs:
             echo "✅ HTTP to HTTPS redirect configured"
           fi
 
-      - name: Setup CNAME for forum.codeproject.com
-        run: |
-          # Get ALB DNS name
-          ALB_DNS=$(aws elbv2 describe-load-balancers \
-            --names $PROJECT_NAME-alb \
-            --query 'LoadBalancers[0].DNSName' \
-            --output text)
-
-          # Get hosted zone for codeproject.com
-          HOSTED_ZONE_ID=$(aws route53 list-hosted-zones \
-            --query "HostedZones[?Name=='${{ env.ROOT_DOMAIN }}.'].Id" \
-            --output text | sed 's|/hostedzone/||')
-
-          # Create CNAME record for forum.codeproject.com
-          cat > domain-cname.json << EOL
-          {
-            "Comment": "CNAME for NodeBB Forum at forum.codeproject.com",
-            "Changes": [
-              {
-                "Action": "UPSERT",
-                "ResourceRecordSet": {
-                  "Name": "${{ env.DOMAIN_NAME }}",
-                  "Type": "CNAME",
-                  "TTL": 300,
-                  "ResourceRecords": [
-                    {
-                      "Value": "$ALB_DNS"
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-          EOL
-
-          aws route53 change-resource-record-sets \
-            --hosted-zone-id $HOSTED_ZONE_ID \
-            --change-batch file://domain-cname.json
-
-          echo "✅ CNAME record created: ${{ env.DOMAIN_NAME }} → $ALB_DNS"
-
       - name: Create or update ECS service
         run: |
           if aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query 'services[0].serviceName' --output text 2>/dev/null | grep -q $ECS_SERVICE; then

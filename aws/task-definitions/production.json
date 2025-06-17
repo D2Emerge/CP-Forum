@@ -46,7 +46,11 @@
         { "name": "DAEMON", "value": "false" },
         { "name": "SILENT", "value": "false" },
         { "name": "START_BUILD", "value": "true" },
-        { "name": "PACKAGE_MANAGER", "value": "npm" }
+        { "name": "PACKAGE_MANAGER", "value": "npm" },
+        {
+          "name": "DEBUG_MODE",
+          "value": "true"
+        }
       ],
       "secrets": [
         {
@@ -98,14 +102,14 @@
       "healthCheck": {
         "command": [
           "CMD-SHELL",
-          "curl -f http://localhost:4567/api || curl -f http://localhost:4567/ || exit 1"
+          "curl -f http://localhost:4567/ || curl -f http://localhost:4567/api || exit 1"
         ],
         "interval": 30,
         "timeout": 10,
         "retries": 5,
         "startPeriod": 240
       },
-      "stopTimeout": 60,
+      "stopTimeout": 120,
       "ulimits": [
         {
           "name": "nofile",
