@@ -100,10 +100,7 @@
         }
       },
       "healthCheck": {
-        "command": [
-          "CMD-SHELL",
-          "curl -f http://localhost:4567/ || curl -f http://localhost:4567/api || exit 1"
-        ],
+        "command": ["CMD-SHELL", "curl -f http://localhost:4567/api || exit 1"],
         "interval": 30,
         "timeout": 10,
         "retries": 5,
